@@ -2,425 +2,347 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
+import os
 
-# Page config
+# -----------------------------------------------------------------------------
+# 1. PAGE CONFIGURATION
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Viral Video Performance Predictor",
+    page_title="Viral Reels Predictor",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# -----------------------------------------------------------------------------
+# 2. CUSTOM CSS (THEME & STYLING)
+# -----------------------------------------------------------------------------
 st.markdown("""
-    <style>
-    .main-header {
-        font-size: 3rem;
-        font-weight: bold;
-        color: #FF6B6B;
-        text-align: center;
-        padding: 1rem;
+<style>
+    /* --- GLOBAL THEME --- */
+    /* Main Background */
+    .stApp {
+        background-color: #0F0A1E; /* Very dark purple/black */
+        color: #E6E6FA; /* Lavender text */
     }
-    . metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
+    
+    /* Sidebar Background */
+    section[data-testid="stSidebar"] {
+        background-color: #1A1025;
+        border-right: 1px solid #2E1A47;
+    }
+
+    /* --- TYPOGRAPHY --- */
+    h1, h2, h3 {
+        color: #D4BBFF !important; /* Bright Neon Lavender */
+        font-family: 'Helvetica Neue', sans-serif;
+        font-weight: 700;
+    }
+    p, label, .stMarkdown {
+        font-size: 1.1rem !important; /* Increase general text size */
+        color: #CEC0E0 !important;
+    }
+
+    /* --- VERTICAL TABS (SIDEBAR RADIO) --- */
+    /* Hide the default radio circle */
+    .stRadio > div[role="radiogroup"] > label > div:first-child {
+        display: None;
+    }
+    
+    /* Style the buttons */
+    .stRadio > div[role="radiogroup"] > label {
+        background-color: transparent;
+        padding: 15px 20px;
+        margin-bottom: 5px;
         border-radius: 10px;
-        color: white;
-        text-align: center;
+        border: 1px solid transparent;
+        transition: all 0.3s;
+        cursor: pointer;
+        display: block; /* Make it take full width */
     }
-    .prediction-box {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        font-size: 1.5rem;
-        text-align: center;
-        margin: 1rem 0;
+    
+    /* Hover Effect */
+    .stRadio > div[role="radiogroup"] > label:hover {
+        background-color: #2E1A47;
+        border-color: #4B3B60;
     }
-    </style>
+
+    /* Selected Tab Styling (The "Active" state) */
+    .stRadio > div[role="radiogroup"] > label[data-testid="stMarkdownContainer"] > p {
+        font-size: 1.3rem !important; /* BIGGER FONT FOR TABS */
+        font-weight: 600;
+    }
+    
+    /* --- METRICS & CARDS --- */
+    div[data-testid="stMetric"] {
+        background-color: #1F1430;
+        border: 1px solid #4B3B60;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #9E86C4 !important;
+        font-size: 1rem !important;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #D4BBFF !important;
+        font-size: 2.2rem !important;
+    }
+
+    /* --- BUTTONS --- */
+    .stButton > button {
+        background-color: #D4BBFF;
+        color: #0F0A1E;
+        font-size: 1.2rem;
+        font-weight: bold;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        border: none;
+        transition: 0.2s;
+    }
+    .stButton > button:hover {
+        background-color: #FFFFFF;
+        box-shadow: 0 0 15px #D4BBFF;
+    }
+    
+    /* --- INPUT FIELDS --- */
+    .stSelectbox div[data-baseweb="select"] > div, 
+    .stNumberInput input {
+        background-color: #261938;
+        color: #FFFFFF;
+        border: 1px solid #4B3B60;
+        border-radius: 8px;
+    }
+</style>
 """, unsafe_allow_html=True)
 
-# Load model and preprocessors
+# -----------------------------------------------------------------------------
+# 3. HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
 @st.cache_resource
-def load_model_and_preprocessors():
+def load_resources():
     try:
-        with open('best_model.pkl', 'rb') as f:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(base_path, 'best_model.pkl')
+        cols_path = os.path.join(base_path, 'feature_columns.pkl')
+
+        with open(model_path, 'rb') as f:
             model = pickle.load(f)
-        with open('scaler.pkl', 'rb') as f:
-            scaler = pickle.load(f)
-        with open('label_encoders.pkl', 'rb') as f:
-            encoders = pickle.load(f)
-        return model, scaler, encoders
-    except FileNotFoundError as e:
-        st.error(f"❌ Error: Required file not found - {e}")
-        st.info("Please run 'preprocess_data. py' and 'train_models.py' first!")
-        return None, None, None
+        with open(cols_path, 'rb') as f:
+            feature_columns = pickle.load(f)
+        return model, feature_columns
+    except FileNotFoundError:
+        return None, None
 
-# Load model results
-@st.cache_data
-def load_results():
-    try:
-        results = pd.read_csv('model_results.csv')
-        return results
-    except:
-        return None
+def display_image(filename, caption):
+    if os.path.exists(filename):
+        st.image(filename, caption=caption, use_container_width=True)
+    else:
+        st.warning(f"Image '{filename}' not found. Run eda.py first.")
 
-# Preprocess input for prediction
-def preprocess_input(data, scaler, encoders):
-    """Preprocess user input for prediction"""
-    df = pd.DataFrame([data])
-    
-    # Create time features
-    upload_time = pd.to_datetime(df['upload_time']. iloc[0])
-    df['year'] = upload_time.year
-    df['month'] = upload_time.month
-    df['day'] = upload_time.day
-    df['dow'] = upload_time.dayofweek
-    df['hour'] = upload_time.hour
-    df['is_weekend'] = 1 if upload_time.dayofweek in [5, 6] else 0
-    
-    # Cyclical encoding
-    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
-    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-    df['dow_sin'] = np.sin(2 * np.pi * df['dow'] / 7)
-    df['dow_cos'] = np.cos(2 * np.pi * df['dow'] / 7)
-    df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
-    df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
-    
-    # Duration features
-    if 'duration_sec' in df.columns:
-        df['duration_squared'] = df['duration_sec'] ** 2
-        df['duration_log'] = np.log1p(df['duration_sec'])
-    
-    # Interaction features
-    if 'duration_sec' in df.columns and 'retention_rate' in df.columns:
-        df['duration_retention'] = df['duration_sec'] * df['retention_rate']
-    
-    if 'likes' in df.columns and 'comments' in df.columns:
-        df['engagement_ratio'] = df['likes'] / (df['comments'] + 1)
-    
-    if 'shares' in df.columns and 'views_total' in df.columns:
-        df['share_rate'] = df['shares'] / (df['views_total'] + 1)
-    
-    # Encode categorical
-    for col, encoder in encoders.items():
-        if col in df.columns:
-            try:
-                df[f'{col}_encoded'] = encoder. transform(df[col].astype(str))
-            except:
-                # Handle unseen categories
-                df[f'{col}_encoded'] = 0
-            df = df.drop(columns=[col])
-    
-    # Drop upload_time
-    df = df.drop(columns=['upload_time'])
-    
-    # Load training columns order
-    try:
-        X_train = pd.read_csv('X_train.csv')
-        train_cols = X_train.columns.tolist()
-        
-        # Add missing columns
-        for col in train_cols:
-            if col not in df.columns:
-                df[col] = 0
-        
-        # Reorder to match training
-        df = df[train_cols]
-        
-    except:
-        pass
-    
-    return df
-
-# Main app
+# -----------------------------------------------------------------------------
+# 4. MAIN NAVIGATION & CONTENT
+# -----------------------------------------------------------------------------
 def main():
-    # Header
-    st.markdown('<div class="main-header">🎬 Viral Video Performance Predictor</div>', unsafe_allow_html=True)
-    st.markdown("### Predict your video's first-hour views using AI 🚀")
     
-    # Load model
-    model, scaler, encoders = load_model_and_preprocessors()
-    
-    if model is None:
-        st.stop()
-    
-    # Sidebar
-    st.sidebar.title("📊 Navigation")
-    page = st.sidebar.radio("Go to", ["🔮 Predict", "📈 Model Performance", "🎯 Feature Importance", "📊 Insights"])
-    
-    # ==================== PAGE 1: PREDICTION ====================
-    if page == "🔮 Predict":
-        st.header("🔮 Make a Prediction")
+    # --- SIDEBAR NAVIGATION ---
+    with st.sidebar:
+        st.title("🎬 ViralPredict")
+        st.markdown("Data-Driven Content Strategy")
+        st.markdown("---")
         
-        col1, col2 = st. columns(2)
+        # This radio button is styled by CSS to look like vertical tabs
+        page_selection = st.radio(
+            "Go to",
+            ["🏠  Project Home", "📊  EDA Analytics", "🤖  Model Details", "🔮  Live Predictor"],
+            label_visibility="collapsed"
+        )
         
+        st.markdown("---")
+        st.info("**Student Project**\n\nIDS Fall 2024")
+
+    # --- PAGE: PROJECT HOME ---
+    if "Project Home" in page_selection:
+        st.title("🚀 Viral Shorts & Reels Predictor")
+        st.markdown("### Decode the Algorithm. Predict the Future.")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([1, 1])
         with col1:
-            st. subheader("📝 Video Details")
-            
-            # Upload time
-            upload_date = st.date_input("Upload Date", datetime.now())
-            upload_time = st.time_input("Upload Time", datetime.now(). time())
-            upload_datetime = datetime.combine(upload_date, upload_time)
-            
-            # Duration
-            duration_sec = st. slider("Duration (seconds)", 5, 60, 30)
-            
-            # Niche
-            niche_options = ["Comedy", "Education", "Entertainment", "Gaming", "Lifestyle", 
-                           "Music", "Sports", "Tech", "Travel", "Vlog"]
-            niche = st.selectbox("Niche", niche_options)
-            
-            # Music type
-            music_options = ["Trending", "Original", "None", "Remix", "Classical"]
-            music_type = st. selectbox("Music Type", music_options)
+            st.markdown("""
+            <div style="background-color: #1F1430; padding: 25px; border-radius: 15px; border-left: 5px solid #D4BBFF;">
+                <h3 style="margin-top:0">The Problem</h3>
+                <p>Creating content is hard. Knowing if it will go viral is harder. 
+                Creators spend hours filming, only to get 100 views.</p>
+            </div>
+            """, unsafe_allow_html=True)
             
         with col2:
-            st. subheader("📊 Engagement Metrics")
-            
-            retention_rate = st.slider("Retention Rate (%)", 0, 100, 50) / 100
-            likes = st. number_input("Expected Likes", 0, 100000, 1000)
-            comments = st. number_input("Expected Comments", 0, 10000, 50)
-            shares = st.number_input("Expected Shares", 0, 50000, 100)
-            views_total = st.number_input("Expected Total Views", 0, 1000000, 10000)
+            st.markdown("""
+            <div style="background-color: #1F1430; padding: 25px; border-radius: 15px; border-left: 5px solid #9E86C4;">
+                <h3 style="margin-top:0">The Solution</h3>
+                <p>We analyzed 400+ videos to build an AI model that predicts 
+                <strong>Total Views</strong> based on Hook Strength, Music, and Duration.</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("### 🔑 Key Metrics Analyzed")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Hook Strength", "First 3s", "Crucial")
+        m2.metric("Music Choice", "Trending", "+40% Boost")
+        m3.metric("Retention", "Watch Time", "Algorithm Key")
+        m4.metric("Niche", "Topic", "Audience Size")
+
+    # --- PAGE: EDA ANALYTICS ---
+    elif "EDA Analytics" in page_selection:
+        st.title("📊 Exploratory Data Analysis")
+        st.markdown("Visualizing the DNA of viral content.")
         
-        # Predict button
-        if st.button("🔮 Predict First Hour Views", type="primary"):
-            # Prepare input
-            input_data = {
-                'upload_time': upload_datetime,
-                'duration_sec': duration_sec,
-                'niche': niche,
-                'music_type': music_type,
-                'retention_rate': retention_rate,
-                'likes': likes,
-                'comments': comments,
-                'shares': shares,
-                'views_total': views_total
-            }
-            
-            # Preprocess
-            try:
-                X_input = preprocess_input(input_data, scaler, encoders)
-                
-                # Predict
-                prediction = model.predict(X_input)[0]
-                
-                # Display prediction
-                st.markdown(f"""
-                <div class="prediction-box">
-                    <h2>Predicted First Hour Views</h2>
-                    <h1>🎯 {int(prediction):,}</h1>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Additional insights
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    engagement_rate = (likes + comments + shares) / max(views_total, 1) * 100
-                    st. metric("Engagement Rate", f"{engagement_rate:.2f}%")
-                
-                with col2:
-                    retention_percent = retention_rate * 100
-                    st.metric("Retention Rate", f"{retention_percent:.1f}%")
-                
-                with col3:
-                    virality_score = (prediction / views_total * 100) if views_total > 0 else 0
-                    st.metric("Virality Score", f"{virality_score:.1f}%")
-                
-                # Recommendations
-                st.subheader("💡 Recommendations")
-                
-                if retention_rate < 0.5:
-                    st. warning("⚠️ Low retention rate! Consider making your content more engaging in the first few seconds.")
-                
-                if duration_sec > 45:
-                    st.info("ℹ️ Shorter videos (20-30s) tend to perform better for viral content.")
-                
-                if upload_datetime.hour < 12 or upload_datetime.hour > 21:
-                    st.info("ℹ️ Try uploading between 12 PM - 9 PM for better reach.")
-                
-                if upload_datetime.weekday() in [5, 6]:
-                    st.success("✅ Weekend uploads tend to get more engagement!")
-                
-            except Exception as e:
-                st.error(f"❌ Error making prediction: {e}")
-                st.error("Please make sure all preprocessing files are present.")
-    
-    # ==================== PAGE 2: MODEL PERFORMANCE ====================
-    elif page == "📈 Model Performance":
-        st.header("📈 Model Performance Metrics")
+        tab_eda1, tab_eda2 = st.tabs(["🔥 Correlations & Distributions", "🎭 Niche & Music"])
         
-        results = load_results()
-        
-        if results is not None:
-            # Display table
-            st.subheader("📊 Model Comparison")
-            st.dataframe(results. style.highlight_max(axis=0, subset=['Test R²']), use_container_width=True)
-            
-            # Best model highlight
-            best_model = results.loc[results['Test R²'].idxmax(), 'Model']
-            best_r2 = results['Test R²'].max()
-            
-            st.success(f"🏆 Best Model: **{best_model}** with R² = **{best_r2:.4f}**")
-            
-            # Visualizations
-            col1, col2 = st. columns(2)
-            
+        with tab_eda1:
+            col1, col2 = st.columns(2)
             with col1:
-                # R² comparison
-                fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=results['Model'],
-                    y=results['Train R²'],
-                    name='Train R²',
-                    marker_color='lightblue'
-                ))
-                fig.add_trace(go. Bar(
-                    x=results['Model'],
-                    y=results['Test R²'],
-                    name='Test R²',
-                    marker_color='darkblue'
-                ))
-                fig.update_layout(
-                    title='R² Score Comparison',
-                    barmode='group',
-                    yaxis_title='R² Score'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
+                st.subheader("Correlation Heatmap")
+                display_image("correlation_heatmap.png", "Correlation Matrix")
             with col2:
-                # RMSE comparison
-                fig = px.bar(results, x='Model', y='Test RMSE', 
-                           title='Test RMSE Comparison (Lower is Better)',
-                           color='Test RMSE',
-                           color_continuous_scale='Reds')
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Cross-validation scores
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=results['Model'],
-                y=results['CV R² Mean'],
-                error_y=dict(type='data', array=results['CV R² Std']),
-                marker_color='purple'
-            ))
-            fig. update_layout(
-                title='Cross-Validation R² (with standard deviation)',
-                yaxis_title='CV R² Score'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-        else:
-            st.warning("⚠️ Model results not found. Please train models first!")
-    
-    # ==================== PAGE 3: FEATURE IMPORTANCE ====================
-    elif page == "🎯 Feature Importance":
-        st.header("🎯 Feature Importance Analysis")
+                st.subheader("Views Distribution")
+                display_image("distributions.png", "Target Variable Distribution")
+                
+        with tab_eda2:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Niche Performance")
+                display_image("niche_analysis.png", "Which topics perform best?")
+            with col2:
+                st.subheader("Music Impact")
+                display_image("music_type_analysis.png", "Impact of Audio Choice")
+
+    # --- PAGE: MODEL DETAILS ---
+    elif "Model Details" in page_selection:
+        st.title("🤖 Machine Learning Model")
         
-        if hasattr(model, 'feature_importances_'):
-            try:
-                X_train = pd.read_csv('X_train.csv')
-                feature_names = X_train.columns.tolist()
-                importances = model.feature_importances_
-                
-                # Create dataframe
-                feat_imp = pd.DataFrame({
-                    'Feature': feature_names,
-                    'Importance': importances
-                }).sort_values('Importance', ascending=False)
-                
-                # Top 20
-                top_20 = feat_imp.head(20)
-                
-                # Plot
-                fig = px.bar(top_20, x='Importance', y='Feature', 
-                           orientation='h',
-                           title='Top 20 Most Important Features',
-                           color='Importance',
-                           color_continuous_scale='Viridis')
-                fig.update_layout(yaxis={'categoryorder':'total ascending'})
-                st. plotly_chart(fig, use_container_width=True)
-                
-                # Show table
-                st.subheader("📋 All Features")
-                st.dataframe(feat_imp, use_container_width=True)
-                
-                # Insights
-                st.subheader("💡 Key Insights")
-                st.write(f"- Most important feature: **{feat_imp.iloc[0]['Feature']}**")
-                st.write(f"- Top 5 features account for **{feat_imp.head(5)['Importance']. sum()*100:.1f}%** of prediction power")
-                
-            except Exception as e:
-                st.error(f"Error loading feature importance: {e}")
-        else:
-            st.info("Feature importance not available for this model type.")
-    
-    # ==================== PAGE 4: INSIGHTS ====================
-    elif page == "📊 Insights":
-        st.header("📊 Key Insights & Tips")
-        
-        col1, col2 = st. columns(2)
+        col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.subheader("🎯 Best Practices")
+            st.subheader("Why Random Forest?")
             st.markdown("""
-            - **Duration**: Keep videos between 20-30 seconds for maximum retention
-            - **Upload Time**: Post between 12 PM - 9 PM for better reach
-            - **Weekends**: Weekend uploads typically get 20-30% more views
-            - **Retention**: Aim for >60% retention rate in first 5 seconds
-            - **Music**: Trending music can boost views by 40-50%
+            We selected the **Random Forest Regressor** for its ability to handle complex, non-linear relationships in social media data.
+            
+            * **Ensemble Method:** Combines 100+ decision trees to reduce overfitting.
+            * **Robustness:** Handles outliers (viral hits) better than Linear Regression.
+            * **Transparency:** Provides clear feature importance scores.
             """)
             
-            st.subheader("🔥 Viral Video Checklist")
-            st.markdown("""
-            - ✅ Hook in first 3 seconds
-            - ✅ Clear and engaging thumbnail
-            - ✅ Trending audio/music
-            - ✅ Optimal upload timing
-            - ✅ Relevant hashtags
-            - ✅ Strong call-to-action
-            """)
-        
+            st.markdown("### Feature Importance")
+            display_image("feature_importance.png", "What drives the algorithm?")
+            
         with col2:
-            st.subheader("📈 Performance Factors")
+            st.markdown("""
+            <div style="background-color: #261938; padding: 20px; border-radius: 15px;">
+                <h4>⚙️ Model Specs</h4>
+                <p><strong>Type:</strong> Regressor</p>
+                <p><strong>Trees:</strong> 100</p>
+                <p><strong>Split:</strong> 80/20 Train/Test</p>
+            </div>
+            <br>
+            """, unsafe_allow_html=True)
             
-            # Create sample data for demonstration
-            factors = pd.DataFrame({
-                'Factor': ['Retention Rate', 'Upload Time', 'Duration', 'Music Type', 'Niche', 'Day of Week'],
-                'Impact': [95, 75, 70, 65, 60, 55]
+            st.subheader("Performance")
+            st.warning("See terminal for latest RMSE & R² scores")
+
+    # --- PAGE: LIVE PREDICTOR ---
+    elif "Live Predictor" in page_selection:
+        st.title("🔮 Viral Prediction Engine")
+        st.markdown("Test your content strategy before you post.")
+        
+        model, feature_columns = load_resources()
+        
+        if model:
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # INPUT CARD
+            with st.container():
+                st.markdown("""<div style="background-color: #1A1025; padding: 20px; border-radius: 15px; border: 1px solid #4B3B60;">""", unsafe_allow_html=True)
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown("##### 📝 Content Basics")
+                    niche = st.selectbox("Niche", ['Tech', 'Motivation', 'Travel', 'Food', 'Gaming', 'Comedy', 'Education', 'Fitness', 'Beauty', 'Music'])
+                    duration = st.slider("Duration (Seconds)", 5, 60, 15)
+                    
+                with c2:
+                    st.markdown("##### 🎵 Audio & Hook")
+                    music_type = st.selectbox("Music Type", ['Viral Track', 'Trending', 'Remix', 'Original', 'No Music'])
+                    hook_strength = st.slider("Hook Strength (0.0 - 1.0)", 0.0, 1.0, 0.6)
+                    
+                with c3:
+                    st.markdown("##### 📈 Early Signals")
+                    views_first_hour = st.number_input("Est. First Hour Views", value=1500, step=100)
+                    retention = st.slider("Est. Retention Rate", 0.0, 1.0, 0.45)
+                    
+                # Hidden default for simpler UI
+                first_3_sec = 0.5 
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            # PREDICTION LOGIC
+            input_data = pd.DataFrame({
+                'duration_sec': [duration],
+                'hook_strength_score': [hook_strength],
+                'views_first_hour': [views_first_hour],
+                'retention_rate': [retention],
+                'first_3_sec_engagement': [first_3_sec],
+                'niche': [niche],
+                'music_type': [music_type]
             })
             
-            fig = px.bar(factors, x='Impact', y='Factor', 
-                        orientation='h',
-                        title='Factors Impacting Video Performance',
-                        color='Impact',
-                        color_continuous_scale='RdYlGn')
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.subheader("⏰ Best Upload Times")
-            upload_times = pd.DataFrame({
-                'Hour': list(range(24)),
-                'Performance': [30, 25, 20, 15, 15, 20, 30, 45, 55, 60, 65, 70, 
-                              85, 90, 95, 92, 88, 85, 90, 95, 85, 70, 55, 40]
-            })
-            
-            fig = px.line(upload_times, x='Hour', y='Performance',
-                         title='Video Performance by Upload Hour',
-                         markers=True)
-            fig.update_layout(xaxis_title='Hour of Day', yaxis_title='Performance Score')
-            st.plotly_chart(fig, use_container_width=True)
+            # Preprocessing
+            input_data = pd.get_dummies(input_data, columns=['niche', 'music_type'], drop_first=True)
+            for col in feature_columns:
+                if col not in input_data.columns:
+                    input_data[col] = 0
+            input_data = input_data[feature_columns]
 
-# Footer
-st.sidebar.markdown("---")
-st. sidebar.info("🚀 Built with Streamlit & Machine Learning")
-st.sidebar.markdown("Made with ❤️ for content creators")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("🚀 PREDICT VIRALITY NOW", use_container_width=True):
+                prediction = model.predict(input_data)[0]
+                
+                st.markdown("---")
+                
+                res_col1, res_col2 = st.columns([1, 2])
+                
+                with res_col1:
+                    st.metric("Predicted Total Views", f"{int(prediction):,}", delta="Algorithm Estimate")
+                
+                with res_col2:
+                    if prediction > 500000:
+                        st.balloons()
+                        st.markdown("""
+                        <div style="background-color: rgba(0, 255, 0, 0.1); padding: 20px; border-radius: 10px; border: 1px solid green;">
+                            <h2 style="color: #00FF00 !important; margin:0;">🔥 MEGA VIRAL HIT!</h2>
+                            <p style="color: #DDFFDD !important;">This content has massive potential. Post it immediately!</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif prediction > 200000:
+                        st.markdown("""
+                        <div style="background-color: rgba(255, 255, 0, 0.1); padding: 20px; border-radius: 10px; border: 1px solid yellow;">
+                            <h2 style="color: #FFFF00 !important; margin:0;">📈 STRONG PERFORMER</h2>
+                            <p style="color: #FFFFDD !important;">Good potential. Improve the hook to push it to viral status.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                        <div style="background-color: rgba(255, 0, 0, 0.1); padding: 20px; border-radius: 10px; border: 1px solid red;">
+                            <h2 style="color: #FF4444 !important; margin:0;">📉 AVERAGE PERFORMANCE</h2>
+                            <p style="color: #FFDDDD !important;">Try using a Trending Audio or cutting the duration to improve results.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-if __name__ == "__main__":
+        else:
+            st.error("⚠️ Model files missing. Please run 'python model.py' first.")
+
+if __name__ == '__main__':
     main()
